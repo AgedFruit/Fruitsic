@@ -1,0 +1,55 @@
+{
+  "name": "fruitsic",
+  "version": "1.0.0",
+  "description": "Desktop YouTube Music wrapper with Discord Rich Presence",
+  "main": "main.js",
+  "author": "AgedFruit",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "dev": "cross-env NODE_ENV=development electron .",
+    "dist": "electron-builder",
+    "dist:win": "electron-builder --win",
+    "dist:mac": "electron-builder --mac",
+    "dist:linux": "electron-builder --linux"
+  },
+  "dependencies": {
+    "discord-rpc": "^4.0.1",
+    "dotenv": "^16.4.5",
+    "electron-log": "^5.2.0",
+    "express": "^4.21.0"
+  },
+  "devDependencies": {
+    "cross-env": "^7.0.3",
+    "electron": "^42.4.1",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "com.agedfruit.fruitsic",
+    "productName": "Fruitsic",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "**/*",
+      ".env",
+      "!dist/**",
+      "!.git/**",
+      "!node_modules/.cache/**"
+    ],
+    "asar": true,
+    "win": {
+      "target": "nsis",
+      "icon": "assets/icon.ico"
+    },
+    "mac": {
+      "target": "dmg",
+      "icon": "assets/icon.icns"
+    },
+    "linux": {
+      "target": "AppImage",
+      "icon": "assets/icon.png",
+      "category": "AudioVideo"
+    }
+  }
+}

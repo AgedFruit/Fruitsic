@@ -1,0 +1,99 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <style>
+    body { margin: 0; background: #111; color: #fff; font-family: system-ui, sans-serif; }
+
+    .wrap {
+      position: relative;
+      display: flex;
+      gap: 10px;
+      padding: 10px 36px 10px 10px; /* extra right padding for close btn */
+      align-items: center;
+      -webkit-app-region: drag;
+      user-select: none;
+      cursor: move;
+    }
+
+    .close-btn {
+      position: absolute;
+      top: 6px;
+      right: 6px;
+      width: 22px;
+      height: 22px;
+      border: 0;
+      border-radius: 6px;
+      background: rgba(255,255,255,0.12);
+      color: #fff;
+      font-size: 14px;
+      line-height: 22px;
+      text-align: center;
+      cursor: pointer;
+      -webkit-app-region: no-drag;
+    }
+    .close-btn:hover { background: rgba(255,255,255,0.22); }
+
+    .cover {
+      width: 64px; height: 64px; border-radius: 8px; object-fit: cover;
+      background: #222; flex: 0 0 64px; -webkit-app-region: no-drag;
+    }
+
+    .meta { min-width: 0; flex: 1; }
+    .title, .artist, .time { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .title { font-weight: 700; }
+    .artist { opacity: .85; margin-top: 2px; }
+    .time { opacity: .9; margin-top: 6px; font-family: ui-monospace, monospace; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <button id="closeBtn" class="close-btn" title="Close mini player">×</button>
+
+    <img id="cover" class="cover" />
+    <div class="meta">
+      <div id="title" class="title">Nothing playing</div>
+      <div id="artist" class="artist">-</div>
+      <div id="time" class="time">0:00 / --:--</div>
+    </div>
+  </div>
+
+  <script>
+    const $cover = document.getElementById('cover');
+    const $title = document.getElementById('title');
+    const $artist = document.getElementById('artist');
+    const $time = document.getElementById('time');
+    const $close = document.getElementById('closeBtn');
+
+    const fmt = (sec = 0) => {
+      sec = Math.max(0, Math.floor(sec || 0));
+      const m = Math.floor(sec / 60), s = sec % 60;
+      return `${m}:${String(s).padStart(2, '0')}`;
+    };
+
+    const render = (t = {}) => {
+      $title.textContent = t.title || 'Nothing playing';
+      $artist.textContent = t.artist || '-';
+      const cur = fmt(t.currentTimeSec || 0);
+      const dur = (t.durationSec || 0) > 0 ? fmt(t.durationSec) : '--:--';
+      $time.textContent = `${cur} / ${dur}${t.paused ? '  ⏸' : ''}`;
+
+      if (t.albumArt) {
+        $cover.src = t.albumArt;
+        $cover.style.visibility = 'visible';
+      } else {
+        $cover.removeAttribute('src');
+        $cover.style.visibility = 'hidden';
+      }
+    };
+
+    $close.addEventListener('click', async () => {
+      // uses your existing IPC handler
+      await window.miniAPI.toggle();
+    });
+
+    window.miniAPI.getNowPlaying().then(render);
+    window.miniAPI.onNowPlaying(render);
+  </script>
+</body>
+</html>
