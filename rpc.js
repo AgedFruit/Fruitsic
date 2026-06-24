@@ -6,7 +6,6 @@ class DiscordPresence {
     this.clientId = clientId;
     this.rpc = null;
     this.ready = false;
-    this.lastKey = '';
   }
 
   async connect(retries = 8) {
@@ -47,59 +46,65 @@ class DiscordPresence {
     return `${m}:${String(r).padStart(2, '0')}`;
   }
 
-async setNowPlaying(track, artist, currentTimeSec = 0, durationSec = 0, paused = false) {
-  if (!this.rpc || !this.ready || !track) return;
+  async setNowPlaying(track, artist, currentTimeSec = 0, durationSec = 0, paused = false, album = '') {
+    if (!this.rpc || !this.ready || !track) return;
 
-  const safeCurrent = Math.max(0, Number(currentTimeSec) || 0);
-  const safeDuration = Math.max(0, Number(durationSec) || 0);
-  const now = Math.floor(Date.now() / 1000);
+    const safeTrack = String(track).trim().slice(0, 128);
+    const safeArtist = String(artist || 'YouTube Music').trim();
+    const safeAlbum = String(album || '').trim();
+    const safeCurrent = Math.max(0, Number(currentTimeSec) || 0);
+    const safeDuration = Math.max(0, Number(durationSec) || 0);
+    const now = Math.floor(Date.now() / 1000);
 
-  const timeText = safeDuration > 0
-    ? `${this.fmt(safeCurrent)}/${this.fmt(safeDuration)}`
-    : `${this.fmt(safeCurrent)}/--:--`;
+    const timeText = safeDuration > 0
+      ? `${this.fmt(safeCurrent)}/${this.fmt(safeDuration)}`
+      : `${this.fmt(safeCurrent)}/--:--`;
 
-  const stateBase = artist || 'YouTube Music';
-  const state = paused
-    ? `⏸ Paused at ${timeText} • ${stateBase}`
-    : `${stateBase} • ${timeText}`;
+const phase = Math.floor(Date.now() / 10000) % 2;
+const phaseMarker = phase === 0 ? '•' : '◦'; // forces distinct text payload
 
-  // Single dedupe block (15s cadence)
-  const bucket = Math.floor(safeCurrent / 15);
-  const dedupeKey = `${track}::${artist}::${paused}::${bucket}`;
-  if (dedupeKey === this.lastKey) return;
-  this.lastKey = dedupeKey;
+let secondary;
+if (paused) {
+  secondary = `⏸ Paused at ${timeText}`;
+} else if (phase === 0 || !safeAlbum) {
+  secondary = timeText;
+} else {
+  secondary = safeAlbum;
+}
 
-  const activity = {
-    details: track,
-    state,
-    largeImageKey: 'ytmusic',
-    largeImageText: 'YouTube Music',
-    instance: false
-  };
+const state = `${safeArtist} ${phaseMarker} ${secondary}`.slice(0, 128);
 
-  if (!paused) {
-    activity.startTimestamp = now - safeCurrent;
-    if (safeDuration > 0) {
-      activity.endTimestamp = activity.startTimestamp + safeDuration;
+    const activity = {
+      type: 2,
+      details: `${safeTrack} • ${secondary}`.slice(0, 128),
+      state: safeArtist,
+      largeImageKey: 'ytmusic',
+      largeImageText: 'YouTube Music',
+      smallImageKey: paused ? 'pause' : 'music',
+      smallImageText: paused ? 'Paused' : 'Listening',
+      instance: false
+    };
+
+    // Only timestamps while playing
+    if (!paused) {
+      activity.startTimestamp = now - Math.floor(safeCurrent);
+      if (safeDuration > 0) {
+        activity.endTimestamp = activity.startTimestamp + Math.floor(safeDuration);
+      }
+    }
+
+    try {
+      await this.rpc.setActivity(activity);
+      log.info('[RPC] setActivity ok', {
+        track: safeTrack,
+        paused,
+        phase,
+        state: activity.state
+      });
+    } catch (err) {
+      log.error('[RPC] setActivity failed:', err.message);
     }
   }
-
-  try {
-    log.info('[RPC activity]', {
-      track,
-      artist,
-      paused,
-      safeCurrent,
-      safeDuration,
-      startTimestamp: activity.startTimestamp,
-      endTimestamp: activity.endTimestamp,
-      state: activity.state
-    });
-    await this.rpc.setActivity(activity);
-  } catch (err) {
-    log.error('[RPC] setActivity failed:', err.message);
-  }
-}
 
   async clear() {
     if (!this.rpc || !this.ready) return;

@@ -24,7 +24,6 @@ const { readSettings, writeSettings } = require('./settings');
 
 const YTM_URL = 'https://music.youtube.com';
 const EXPRESS_PORT = Number(process.env.EXPRESS_PORT || 3977);
-const UPDATE_HEARTBEAT_MS = 15000;
 
 let win;
 let miniWin = null;
@@ -35,46 +34,25 @@ let rpc = null;
 let nowPlaying = {
   title: '',
   artist: '',
+  album: '',
   currentTimeSec: 0,
   durationSec: 0,
   paused: false,
   albumArt: ''
 };
 
-let lastPresencePushAt = 0;
-let lastSnapshot = null;
+let presencePollTimer = null;
+let lastPushedPresence = {
+  title: '',
+  artist: '',
+  album: '',
+  paused: null,
+  currentBucket: -1,
+  phase: -1
+};
 
-function classifyChange(prev, next) {
-  if (!prev) return 'init';
-  if (prev.title !== next.title || prev.artist !== next.artist) return 'track-change';
-  if (prev.paused !== next.paused) return 'playback-toggle';
-
-  const dt = Math.abs((next.currentTimeSec || 0) - (prev.currentTimeSec || 0));
-  if (dt >= 3) return 'seek';
-
-  return 'tick';
-}
-
-function shouldPushPresence(next) {
-  const now = Date.now();
-  const changeType = classifyChange(lastSnapshot, next);
-
-  const immediate =
-    changeType === 'init' ||
-    changeType === 'track-change' ||
-    changeType === 'playback-toggle' ||
-    changeType === 'seek';
-
-  const heartbeatDue = now - lastPresencePushAt >= UPDATE_HEARTBEAT_MS;
-
-  if (immediate || heartbeatDue) {
-    lastPresencePushAt = now;
-    lastSnapshot = { ...next };
-    return true;
-  }
-
-  lastSnapshot = { ...next };
-  return false;
+function currentPhase10s() {
+  return Math.floor(Date.now() / 10000) % 2;
 }
 
 async function rebuildRpcFromSettings(oldSettings, newSettings) {
@@ -98,6 +76,15 @@ async function rebuildRpcFromSettings(oldSettings, newSettings) {
 
   rpc = new DiscordPresence(newId);
 
+  lastPushedPresence = {
+    title: '',
+    artist: '',
+    album: '',
+    paused: null,
+    currentBucket: -1,
+    phase: -1
+  };
+
   if (newEnabled && newId) {
     setTimeout(() => {
       try {
@@ -120,7 +107,6 @@ async function applySettingsPartial(partial) {
   };
 
   writeSettings(settings);
-
   await rebuildRpcFromSettings(previous, settings);
 
   if (!settings.discordEnabled && rpc) {
@@ -146,6 +132,7 @@ async function setupRealtimeTrackBridge() {
       nowPlaying = {
         title: payload.title || '',
         artist: payload.artist || '',
+        album: payload.album || '',
         currentTimeSec: Number(payload.currentTimeSec) || 0,
         durationSec: Number(payload.durationSec) || 0,
         paused: !!payload.paused,
@@ -159,18 +146,6 @@ async function setupRealtimeTrackBridge() {
       } catch (e) {
         log.warn('[Mini] update failed', e?.message);
       }
-
-      if (!nowPlaying.title || !settings.discordEnabled) return;
-      if (!rpc) return;
-      if (!shouldPushPresence(nowPlaying)) return;
-
-      await rpc.setNowPlaying(
-        nowPlaying.title,
-        nowPlaying.artist,
-        nowPlaying.currentTimeSec,
-        nowPlaying.durationSec,
-        nowPlaying.paused
-      );
     } catch (err) {
       log.warn('[Bridge] handler error', err?.message);
     }
@@ -191,11 +166,83 @@ async function setupRealtimeTrackBridge() {
         return 0;
       }
 
+      function pickMedia() {
+        const nodes = Array.from(document.querySelectorAll('audio,video'));
+        if (!nodes.length) return null;
+
+        let m = nodes.find(el =>
+          !el.paused &&
+          Number.isFinite(el.currentTime) &&
+          (Number.isFinite(el.duration) ? el.duration > 0 : true) &&
+          !el.muted &&
+          el.volume > 0
+        );
+        if (m) return m;
+
+        m = nodes.find(el => !el.paused);
+        if (m) return m;
+
+        nodes.sort((a, b) => (b.duration || 0) - (a.duration || 0));
+        return nodes[0] || null;
+      }
+
+      function looksLikeTrackCount(text) {
+        return /\\b\\d+\\s*(song|songs|track|tracks)\\b/i.test(text);
+      }
+
+      function readAlbumFallback() {
+        // 1) Best signal: album link in player bar byline
+        const albumLinkSelectors = [
+          'ytmusic-player-bar .byline a[href*="browse/"]',
+          '.middle-controls .byline a[href*="browse/"]',
+          'ytmusic-player-bar .subtitle a[href*="browse/"]'
+        ];
+
+        for (const sel of albumLinkSelectors) {
+          const links = Array.from(document.querySelectorAll(sel));
+          for (const a of links) {
+            const txt = (a.textContent || '').trim();
+            if (!txt) continue;
+            if (looksLikeTrackCount(txt)) continue;
+            return txt;
+          }
+        }
+
+        // 2) Fallback: parse bullet-separated byline and pick best non-count segment
+        const bylineSelectors = [
+          '.middle-controls .byline.ytmusic-player-bar',
+          'ytmusic-player-bar .byline',
+          'ytmusic-player-bar .subtitle',
+          '.subtitle',
+          '.byline',
+          '[class*="byline"]',
+          '[class*="subtitle"]'
+        ];
+
+        for (const sel of bylineSelectors) {
+          const nodes = Array.from(document.querySelectorAll(sel));
+          for (const n of nodes) {
+            const txt = (n.textContent || '').replace(/\\s+/g, ' ').trim();
+            if (!txt) continue;
+
+            const parts = txt.split('•').map(s => s.trim()).filter(Boolean);
+            if (!parts.length) continue;
+
+            // usually first is artist; choose first viable non-count after that
+            const candidates = parts.slice(1).filter(p => !looksLikeTrackCount(p));
+            if (candidates.length) return candidates[0];
+          }
+        }
+
+        return '';
+      }
+
       function readTrack() {
-        const audio = document.querySelector('audio');
-        let currentTimeSec = audio && Number.isFinite(audio.currentTime) ? Math.floor(audio.currentTime) : 0;
-        let durationSec = audio && Number.isFinite(audio.duration) ? Math.floor(audio.duration) : 0;
-        const paused = audio ? !!audio.paused : false;
+        const media = pickMedia();
+
+        let currentTimeSec = media && Number.isFinite(media.currentTime) ? Math.floor(media.currentTime) : 0;
+        let durationSec = media && Number.isFinite(media.duration) ? Math.floor(media.duration) : 0;
+        const paused = media ? !!media.paused : true;
 
         const timeInfo = document.querySelector('.time-info')?.textContent || '';
         const m = timeInfo.replace(/\\s+/g, ' ').match(/(\\d{1,2}:\\d{2}(?::\\d{2})?)\\s*\\/\\s*(\\d{1,2}:\\d{2}(?::\\d{2})?)/);
@@ -209,6 +256,7 @@ async function setupRealtimeTrackBridge() {
 
         const title = (meta && meta.title ? meta.title : document.title.replace(' - YouTube Music', '').trim() || '').trim();
         const artist = (meta && meta.artist ? meta.artist : '').trim();
+        const album = ((meta && meta.album ? meta.album : '') || readAlbumFallback()).trim();
 
         let albumArt = '';
         try {
@@ -226,7 +274,7 @@ async function setupRealtimeTrackBridge() {
           }
         } catch (_) {}
 
-        return { title, artist, currentTimeSec, durationSec, paused, albumArt };
+        return { title, artist, album, currentTimeSec, durationSec, paused, albumArt };
       }
 
       function emit() {
@@ -238,28 +286,203 @@ async function setupRealtimeTrackBridge() {
         }
       }
 
-      const attachAudio = () => {
-        const audio = document.querySelector('audio');
-        if (!audio || audio.__ytmRpcBound) return;
-        audio.__ytmRpcBound = true;
+      function attachMedia() {
+        Array.from(document.querySelectorAll('audio,video')).forEach((media) => {
+          if (!media || media.__ytmRpcBound) return;
+          media.__ytmRpcBound = true;
 
-        ['play', 'pause', 'seeking', 'seeked', 'loadedmetadata', 'durationchange', 'timeupdate', 'ended']
-          .forEach(evt => audio.addEventListener(evt, emit, { passive: true }));
-      };
+          ['play', 'pause', 'seeking', 'seeked', 'loadedmetadata', 'durationchange', 'timeupdate', 'ended']
+            .forEach(evt => media.addEventListener(evt, emit, { passive: true }));
+        });
+      }
 
       const observer = new MutationObserver(() => {
-        attachAudio();
+        attachMedia();
         emit();
       });
+
       observer.observe(document.documentElement, { childList: true, subtree: true, characterData: true });
 
-      attachAudio();
+      attachMedia();
       emit();
       setInterval(emit, 5000);
     })();
   `,
     true
   );
+}
+
+async function readTrackForPresence() {
+  if (!win || win.isDestroyed()) return null;
+
+  try {
+    return await win.webContents.executeJavaScript(
+      `
+      (() => {
+        function pickMedia() {
+          const nodes = Array.from(document.querySelectorAll('audio,video'));
+          if (!nodes.length) return null;
+
+          let m = nodes.find(el =>
+            !el.paused &&
+            Number.isFinite(el.currentTime) &&
+            (Number.isFinite(el.duration) ? el.duration > 0 : true) &&
+            !el.muted &&
+            el.volume > 0
+          );
+          if (m) return m;
+
+          m = nodes.find(el => !el.paused);
+          if (m) return m;
+
+          nodes.sort((a, b) => (b.duration || 0) - (a.duration || 0));
+          return nodes[0] || null;
+        }
+
+        function looksLikeTrackCount(text) {
+          return /\\b\\d+\\s*(song|songs|track|tracks)\\b/i.test(text);
+        }
+
+        function readAlbumFallback() {
+          const albumLinkSelectors = [
+            'ytmusic-player-bar .byline a[href*="browse/"]',
+            '.middle-controls .byline a[href*="browse/"]',
+            'ytmusic-player-bar .subtitle a[href*="browse/"]'
+          ];
+
+          for (const sel of albumLinkSelectors) {
+            const links = Array.from(document.querySelectorAll(sel));
+            for (const a of links) {
+              const txt = (a.textContent || '').trim();
+              if (!txt) continue;
+              if (looksLikeTrackCount(txt)) continue;
+              return txt;
+            }
+          }
+
+          const bylineSelectors = [
+            '.middle-controls .byline.ytmusic-player-bar',
+            'ytmusic-player-bar .byline',
+            'ytmusic-player-bar .subtitle',
+            '.subtitle',
+            '.byline',
+            '[class*="byline"]',
+            '[class*="subtitle"]'
+          ];
+
+          for (const sel of bylineSelectors) {
+            const nodes = Array.from(document.querySelectorAll(sel));
+            for (const n of nodes) {
+              const txt = (n.textContent || '').replace(/\\s+/g, ' ').trim();
+              if (!txt) continue;
+
+              const parts = txt.split('•').map(s => s.trim()).filter(Boolean);
+              if (!parts.length) continue;
+
+              const candidates = parts.slice(1).filter(p => !looksLikeTrackCount(p));
+              if (candidates.length) return candidates[0];
+            }
+          }
+
+          return '';
+        }
+
+        const media = pickMedia();
+        const ms = (typeof navigator !== 'undefined' && navigator.mediaSession) ? navigator.mediaSession : null;
+        const meta = ms && ms.metadata ? ms.metadata : null;
+
+        const title = (meta && meta.title ? meta.title : document.title.replace(' - YouTube Music', '').trim() || '').trim();
+        const artist = (meta && meta.artist ? meta.artist : '').trim();
+        const album = ((meta && meta.album ? meta.album : '') || readAlbumFallback()).trim();
+
+        const currentTimeSec = media && Number.isFinite(media.currentTime) ? Math.floor(media.currentTime) : 0;
+        const durationSec = media && Number.isFinite(media.duration) ? Math.floor(media.duration) : 0;
+        const paused = media ? !!media.paused : true;
+
+        return { title, artist, album, currentTimeSec, durationSec, paused };
+      })();
+      `,
+      true
+    );
+  } catch (e) {
+    log.warn('[Presence poll] read failed', e?.message);
+    return null;
+  }
+}
+
+function shouldPushPolledPresence(next) {
+  if (!next?.title) return false;
+
+  const bucket = next.paused
+    ? Math.floor((next.currentTimeSec || 0) / 5)
+    : Math.floor((next.currentTimeSec || 0) / 20);
+
+  const phase = currentPhase10s();
+
+  const trackChanged =
+    next.title !== lastPushedPresence.title ||
+    next.artist !== lastPushedPresence.artist ||
+    (next.album || '') !== (lastPushedPresence.album || '');
+
+  const pauseChanged = next.paused !== lastPushedPresence.paused;
+  const bucketChanged = bucket !== lastPushedPresence.currentBucket;
+  const phaseChanged = phase !== lastPushedPresence.phase;
+
+  if (trackChanged || pauseChanged || bucketChanged || phaseChanged) {
+    lastPushedPresence = {
+      title: next.title,
+      artist: next.artist,
+      album: next.album || '',
+      paused: next.paused,
+      currentBucket: bucket,
+      phase
+    };
+    return true;
+  }
+
+  return false;
+}
+
+function startPresencePolling() {
+  if (presencePollTimer) clearInterval(presencePollTimer);
+
+  presencePollTimer = setInterval(async () => {
+    try {
+      if (!settings?.discordEnabled || !rpc) return;
+
+      const p = await readTrackForPresence();
+      if (!p || !p.title) return;
+      if (!shouldPushPolledPresence(p)) return;
+
+      log.info('[Presence poll push]', {
+        title: p.title,
+        artist: p.artist,
+        album: p.album,
+        paused: p.paused,
+        currentTimeSec: p.currentTimeSec,
+        durationSec: p.durationSec,
+        phase: currentPhase10s()
+      });
+
+      await rpc.setNowPlaying(
+        p.title,
+        p.artist,
+        p.currentTimeSec,
+        p.durationSec,
+        p.paused,
+        p.album || ''
+      );
+    } catch (e) {
+      log.warn('[Presence poll] push failed', e?.message);
+    }
+  }, 800);
+}
+
+function stopPresencePolling() {
+  if (presencePollTimer) {
+    clearInterval(presencePollTimer);
+    presencePollTimer = null;
+  }
 }
 
 function createWindow() {
@@ -362,18 +585,18 @@ function setupExpress() {
 app.whenReady().then(async () => {
   settings = readSettings();
 
-const envClientId = (process.env.DISCORD_CLIENT_ID || '').trim();
-const effectiveClientId =
-  (settings.discordClientId || '').trim() ||
-  envClientId ||
-  DEFAULT_DISCORD_CLIENT_ID;
+  const envClientId = (process.env.DISCORD_CLIENT_ID || '').trim();
+  const effectiveClientId =
+    (settings.discordClientId || '').trim() ||
+    envClientId ||
+    DEFAULT_DISCORD_CLIENT_ID;
 
-if (!settings.discordClientId && effectiveClientId) {
-  settings.discordClientId = effectiveClientId;
-  writeSettings(settings);
-}
+  if (!settings.discordClientId && effectiveClientId) {
+    settings.discordClientId = effectiveClientId;
+    writeSettings(settings);
+  }
 
-rpc = new DiscordPresence(effectiveClientId);
+  rpc = new DiscordPresence(effectiveClientId);
 
   session.defaultSession.setPermissionRequestHandler((_wc, _permission, cb) => cb(false));
 
@@ -388,6 +611,7 @@ rpc = new DiscordPresence(effectiveClientId);
   createWindow();
   setupIPC();
   setupExpress();
+  startPresencePolling();
 
   if (settings.discordEnabled && (settings.discordClientId || '').trim()) {
     setTimeout(() => {
@@ -409,6 +633,7 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', async () => {
+  stopPresencePolling();
   if (expressServer) expressServer.close();
   if (rpc) await rpc.destroy();
 });
