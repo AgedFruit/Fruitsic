@@ -52,8 +52,261 @@ let lastPushedPresence = {
   phase: -1
 };
 
+let lastAutoSkippedTrackKey = '';
+let rickrollSkipCooldownUntil = 0;
+let mediaCommandInFlight = false;
+
 function currentPhase10s() {
   return Math.floor(Date.now() / 10000) % 2;
+}
+
+function norm(s = '') {
+  return String(s)
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+function looksLikeRickrollText(title = '', artist = '', pageTitle = '') {
+  const t = norm(title);
+  const a = norm(artist);
+  const p = norm(String(pageTitle || '').replace(' - youtube music', ''));
+
+  const strong =
+    t.includes('never gonna give you up') ||
+    t.includes('never going to give you up') ||
+    p.includes('never gonna give you up') ||
+    p.includes('never going to give you up');
+
+  if (strong) return true;
+
+  const partial =
+    t.includes('never gonna give you') ||
+    t.includes('give you up') ||
+    p.includes('never gonna give you') ||
+    p.includes('give you up');
+
+  const rickCtx =
+    a.includes('rick astley') ||
+    a.includes('astley') ||
+    p.includes('rick astley');
+
+  return partial && rickCtx;
+}
+
+function isRickrollByTitleArtist(title = '', artist = '') {
+  const t = norm(title);
+  const a = norm(artist);
+
+  const strongTitle =
+    t.includes('never gonna give you up') ||
+    t.includes('never going to give you up');
+
+  if (strongTitle) return true;
+
+  const partialTitle =
+    t.includes('never gonna give you') ||
+    t.includes('give you up');
+
+  const rickCtx =
+    a.includes('rick astley') ||
+    a.includes('astley');
+
+  return partialTitle && rickCtx;
+}
+
+async function isRickrollNowFromPage() {
+  if (!win || win.isDestroyed()) return false;
+  try {
+    return await win.webContents.executeJavaScript(
+      `
+      (() => {
+        const norm = (s='') => String(s).toLowerCase()
+          .normalize('NFKD')
+          .replace(/[\\u0300-\\u036f]/g, '')
+          .replace(/[^a-z0-9]+/g, ' ')
+          .trim();
+
+        const ms = navigator.mediaSession && navigator.mediaSession.metadata ? navigator.mediaSession.metadata : null;
+        const title = norm(ms && ms.title ? ms.title : '');
+        const artist = norm(ms && ms.artist ? ms.artist : '');
+        const pageTitle = norm(String(document.title || '').replace(' - YouTube Music', ''));
+
+        const strong =
+          title.includes('never gonna give you up') ||
+          title.includes('never going to give you up') ||
+          pageTitle.includes('never gonna give you up') ||
+          pageTitle.includes('never going to give you up');
+
+        if (strong) return true;
+
+        const partial =
+          title.includes('never gonna give you') ||
+          title.includes('give you up') ||
+          pageTitle.includes('never gonna give you') ||
+          pageTitle.includes('give you up');
+
+        const rickCtx =
+          artist.includes('rick astley') ||
+          artist.includes('astley') ||
+          pageTitle.includes('rick astley');
+
+        return !!(partial && rickCtx);
+      })();
+      `,
+      true
+    );
+  } catch (_) {
+    return false;
+  }
+}
+
+async function sendMiniToast(message) {
+  try {
+    if (miniWin && !miniWin.isDestroyed()) {
+      miniWin.webContents.send('mini:toast', { message, ts: Date.now() });
+    }
+  } catch (_) {}
+}
+
+async function sendMainToast(message) {
+  if (!win || win.isDestroyed()) return false;
+  try {
+    return await win.webContents.executeJavaScript(`
+      (() => {
+        const msg = ${JSON.stringify(String(message || ''))};
+
+        let host = document.getElementById('__ytm_rpc_toast');
+        if (!host) {
+          host = document.createElement('div');
+          host.id = '__ytm_rpc_toast';
+          host.style.position = 'fixed';
+          host.style.left = '50%';
+          host.style.bottom = '24px';
+          host.style.transform = 'translateX(-50%) translateY(8px)';
+          host.style.background = 'rgba(20,20,20,0.92)';
+          host.style.color = '#fff';
+          host.style.padding = '10px 14px';
+          host.style.borderRadius = '10px';
+          host.style.fontSize = '13px';
+          host.style.fontFamily = 'system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
+          host.style.zIndex = '2147483647';
+          host.style.opacity = '0';
+          host.style.transition = 'opacity .15s ease, transform .15s ease';
+          host.style.pointerEvents = 'none';
+          host.style.border = '1px solid rgba(255,255,255,.12)';
+          document.documentElement.appendChild(host);
+        }
+
+        host.textContent = msg;
+        host.style.opacity = '1';
+        host.style.transform = 'translateX(-50%) translateY(0)';
+
+        clearTimeout(window.__ytmRpcToastTimer);
+        window.__ytmRpcToastTimer = setTimeout(() => {
+          const el = document.getElementById('__ytm_rpc_toast');
+          if (!el) return;
+          el.style.opacity = '0';
+          el.style.transform = 'translateX(-50%) translateY(8px)';
+        }, 5500);
+
+        return true;
+      })();
+    `, true);
+  } catch {
+    return false;
+  }
+}
+
+async function triggerMediaCommand(command) {
+  if (mediaCommandInFlight) return false;
+  mediaCommandInFlight = true;
+
+  try {
+    if (!win || win.isDestroyed()) return false;
+    const cmd = String(command || '').trim();
+
+    return await win.webContents.executeJavaScript(
+      `
+      (() => {
+        const command = ${JSON.stringify(cmd)};
+
+        const fireClick = (el) => {
+          if (!el) return false;
+          try { el.click(); return true; } catch (_) {}
+          try {
+            el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+            el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+            el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+            el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+            return true;
+          } catch (_) {}
+          return false;
+        };
+
+        const clickAny = (selectors) => {
+          for (const s of selectors) {
+            const el = document.querySelector(s);
+            if (!el) continue;
+            if (fireClick(el)) return true;
+
+            const hostBtn = el.closest && el.closest('tp-yt-paper-icon-button, button');
+            if (hostBtn && fireClick(hostBtn)) return true;
+          }
+          return false;
+        };
+
+        if (command === 'playPause') {
+          if (clickAny([
+            'ytmusic-player-bar tp-yt-paper-icon-button#play-pause-button',
+            'ytmusic-player-bar #play-pause-button',
+            'ytmusic-player-bar button[aria-label*="Pause"]',
+            'ytmusic-player-bar button[aria-label*="Play"]'
+          ])) return true;
+
+          const m = document.querySelector('audio,video');
+          if (m) { m.paused ? m.play().catch(() => {}) : m.pause(); return true; }
+          return false;
+        }
+
+        if (command === 'next') {
+          if (clickAny([
+            'ytmusic-player-bar tp-yt-paper-icon-button#next-button',
+            'ytmusic-player-bar #next-button',
+            'ytmusic-player-bar #next-button tp-yt-iron-icon',
+            'ytmusic-player-bar #next-button yt-icon',
+            'ytmusic-player-bar tp-yt-paper-icon-button[title*="Next"]',
+            'ytmusic-player-bar button[aria-label*="Next"]'
+          ])) return true;
+          return false;
+        }
+
+        if (command === 'previous') {
+          if (clickAny([
+            'ytmusic-player-bar tp-yt-paper-icon-button#previous-button',
+            'ytmusic-player-bar #previous-button',
+            'ytmusic-player-bar #previous-button tp-yt-iron-icon',
+            'ytmusic-player-bar #previous-button yt-icon',
+            'ytmusic-player-bar tp-yt-paper-icon-button[title*="Previous"]',
+            'ytmusic-player-bar button[aria-label*="Previous"]'
+          ])) return true;
+          return false;
+        }
+
+        return false;
+      })();
+      `,
+      true
+    );
+  } catch {
+    return false;
+  } finally {
+    setTimeout(() => {
+      mediaCommandInFlight = false;
+    }, 120);
+  }
 }
 
 async function rebuildRpcFromSettings(oldSettings, newSettings) {
@@ -111,7 +364,10 @@ async function applySettingsPartial(partial) {
     discordClientId: String(partial.discordClientId ?? settings.discordClientId ?? '').trim(),
     rpcDisplayPreset: String(partial.rpcDisplayPreset ?? settings.rpcDisplayPreset ?? 'clean')
       .trim()
-      .toLowerCase()
+      .toLowerCase(),
+    rickrollJokeMode: typeof partial.rickrollJokeMode === 'boolean'
+      ? partial.rickrollJokeMode
+      : !!settings.rickrollJokeMode
   };
 
   writeSettings(settings);
@@ -167,6 +423,17 @@ async function setupRealtimeTrackBridge() {
         albumArt: payload.albumArt || '',
         trackUrl: payload.trackUrl || ''
       };
+
+      if (settings?.rickrollJokeMode) {
+        const hit = isRickrollByTitleArtist(nowPlaying.title, nowPlaying.artist);
+        if (hit && Date.now() > rickrollSkipCooldownUntil) {
+          rickrollSkipCooldownUntil = Date.now() + 5000;
+
+          const skipped = await triggerMediaCommand('next');
+          await sendMainToast('🥸 Nice try. Rickroll auto-skipped.');
+          await triggerMediaCommand('playPause');
+        }
+      }
 
       try {
         if (miniWin && !miniWin.isDestroyed()) {
@@ -570,19 +837,32 @@ function startPresencePolling() {
 
       const p = await readTrackForPresence();
       if (!p || !p.title) return;
-      if (!shouldPushPolledPresence(p)) return;
 
-      log.info('[Presence poll push]', {
-        title: p.title,
-        artist: p.artist,
-        album: p.album,
-        paused: p.paused,
-        currentTimeSec: p.currentTimeSec,
-        durationSec: p.durationSec,
-        phase: currentPhase10s(),
-        preset: settings?.rpcDisplayPreset || 'clean',
-        trackUrl: p.trackUrl
-      });
+      if (settings?.rickrollJokeMode) {
+        const pageDetect = await isRickrollNowFromPage();
+        const localDetect = looksLikeRickrollText(p.title, p.artist, p.title || '');
+
+        if (pageDetect || localDetect) {
+          const key = `${norm(p.title)}|${norm(p.artist)}|rickroll`;
+          if (key !== lastAutoSkippedTrackKey) {
+            lastAutoSkippedTrackKey = key;
+
+            const skipped = await triggerMediaCommand('next');
+
+            await sendMiniToast(
+              skipped
+                ? '🥸 Nice try. Rickroll auto-skipped.'
+                : '🥸 Rickroll detected, but skip failed.'
+            );
+
+            return;
+          }
+        } else {
+          lastAutoSkippedTrackKey = '';
+        }
+      }
+
+      if (!shouldPushPolledPresence(p)) return;
 
       await rpc.setNowPlaying(
         p.title,
@@ -687,85 +967,7 @@ function setupIPC() {
   ipcMain.handle('nowPlaying:get', async () => nowPlaying);
 
   ipcMain.handle('media:command', async (_evt, command) => {
-    if (!win || win.isDestroyed()) return false;
-    const cmd = String(command || '').trim();
-
-    return win.webContents.executeJavaScript(`
-      (() => {
-        const command = ${JSON.stringify(cmd)};
-
-        const fireClick = (el) => {
-          if (!el) return false;
-          try { el.click(); return true; } catch (_) {}
-          try {
-            el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
-            el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-            el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
-            el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
-            return true;
-          } catch (_) {}
-          return false;
-        };
-
-        const clickAny = (selectors) => {
-          for (const s of selectors) {
-            const el = document.querySelector(s);
-            if (!el) continue;
-
-            // click element itself
-            if (fireClick(el)) return true;
-
-            // click nearest button host if this is inner icon/path
-            const hostBtn = el.closest('tp-yt-paper-icon-button, button');
-            if (hostBtn && fireClick(hostBtn)) return true;
-          }
-          return false;
-        };
-
-        if (command === 'playPause') {
-          if (clickAny([
-            'ytmusic-player-bar tp-yt-paper-icon-button#play-pause-button',
-            'ytmusic-player-bar #play-pause-button',
-            'ytmusic-player-bar button[aria-label*="Pause"]',
-            'ytmusic-player-bar button[aria-label*="Play"]'
-          ])) return true;
-
-          const m = document.querySelector('audio,video');
-          if (m) { m.paused ? m.play().catch(() => {}) : m.pause(); return true; }
-          return false;
-        }
-
-        if (command === 'next') {
-          if (clickAny([
-            // host button
-            'ytmusic-player-bar tp-yt-paper-icon-button#next-button',
-            'ytmusic-player-bar #next-button',
-            // inner icon targets (very common)
-            'ytmusic-player-bar #next-button tp-yt-iron-icon',
-            'ytmusic-player-bar #next-button yt-icon',
-            'ytmusic-player-bar tp-yt-paper-icon-button[title*="Next"]',
-            'ytmusic-player-bar button[aria-label*="Next"]'
-          ])) return true;
-          return false;
-        }
-
-        if (command === 'previous') {
-          if (clickAny([
-            // host button
-            'ytmusic-player-bar tp-yt-paper-icon-button#previous-button',
-            'ytmusic-player-bar #previous-button',
-            // inner icon targets
-            'ytmusic-player-bar #previous-button tp-yt-iron-icon',
-            'ytmusic-player-bar #previous-button yt-icon',
-            'ytmusic-player-bar tp-yt-paper-icon-button[title*="Previous"]',
-            'ytmusic-player-bar button[aria-label*="Previous"]'
-          ])) return true;
-          return false;
-        }
-
-        return false;
-      })();
-    `, true);
+    return triggerMediaCommand(command);
   });
 }
 
@@ -777,7 +979,8 @@ function setupExpress() {
       discordEnabled: settings.discordEnabled,
       pollMs: settings.pollMs,
       discordClientId: settings.discordClientId || '',
-      rpcDisplayPreset: settings.rpcDisplayPreset || 'clean'
+      rpcDisplayPreset: settings.rpcDisplayPreset || 'clean',
+      rickrollJokeMode: !!settings.rickrollJokeMode
     }),
     getSettings: () => settings,
     updateSettings: async (partial) => {
@@ -791,6 +994,9 @@ app.whenReady().then(async () => {
 
   if (!settings.rpcDisplayPreset) {
     settings.rpcDisplayPreset = 'clean';
+  }
+  if (typeof settings.rickrollJokeMode !== 'boolean') {
+    settings.rickrollJokeMode = false;
   }
 
   const envClientId = (process.env.DISCORD_CLIENT_ID || '').trim();
