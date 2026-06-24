@@ -173,12 +173,12 @@ Build output goes to `dist/`.
 
 ---
 
-## 📄 License
+## License
 
 MIT — do whatever, just keep attribution.
 
 ---
 
-## 🙌 Credits
+## Credits
 
 Built with Electron + Discord RPC + caffeine.
