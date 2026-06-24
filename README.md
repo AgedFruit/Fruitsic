@@ -1,5 +1,9 @@
 # 🍍 Fruitsic
 
+Want to show your friends your horrible taste in music but can't because you use YouTube Music?
+
+Look no further than Fruitsic, this **wrapper** for YouTube Music treats YouTube Music as a standalone desktop app like Spotify with built in Discord Rich Text Presence, meaning you can be BM'd in real time.
+
 A desktop **YouTube Music** wrapper with:
 
 - **Discord Rich Presence** (track, artist, album/time presets, elapsed/progress)
@@ -10,55 +14,20 @@ A desktop **YouTube Music** wrapper with:
 
 ---
 
-## How to Use
+## Install / Authorise Discord App
 
-1. Install Fruitsic with the installer
-2. Authorize the Discord app (first run)
-3. Launch Fruitsic and play music on YouTube Music
-
----
-
-## Install / Authorize Discord App
-
-If Rich Presence does not appear immediately, authorize the Fruitsic Discord app once:
+Click the below link and add the app to your Discord account.
 
 **https://discord.com/oauth2/authorize?client_id=1445465237359693877**
 
 Then:
 
-1. Fully restart Discord desktop
-2. Restart Fruitsic
-3. Play a track in YouTube Music
+1. Download the Fruitsic Installer & run it
+2. Fully restart Discord desktop
+3. Open Fruitsic / Login to Youtube Music
+4. Listen to music
 
 ---
-
-## Zero-Config by Default
-
-Fruitsic ships with a built-in Discord Application Client ID fallback, so most users can:
-
-1. Install
-2. Launch
-3. Play music
-4. See Rich Presence in Discord
-
-No manual setup is required for normal use (probably).
-
----
-
-## Features
-
-- Real-time now-playing detection from YouTube Music
-- Smart presence update throttling (track changes, seek, pause/play, heartbeat)
-- Rich Presence display presets:
-  - `clean`
-  - `time-first`
-  - `album-first`
-- Frameless mini player you can drag anywhere
-- Optional local HTTP endpoints for status/settings
-- Packaged builds via `electron-builder` (Windows/macOS/Linux)
-
----
-
 ## Controls
 
 ![Mini player example](/assets/mini_player_example.png)
@@ -66,107 +35,20 @@ No manual setup is required for normal use (probably).
 - **Toggle mini player:** `Ctrl+Shift+M` (Windows/Linux) / `Cmd+Shift+M` (macOS)
 - Mini player window is draggable (frameless mode)
 - Close mini player with `×`
+- Play / Pause / Next / Previous Track
 
 ---
+## Features
 
-## Mini Player
-
-- Always on top
-- Drag anywhere by grabbing the window
-- Close with `×`
-- Displays:
-  - Album art
-  - Track title
-  - Artist
-  - Current time / duration
-  - Pause indicator
-
----
-
-## Troubleshooting
-
-### Presence not connecting
-
-- Ensure Discord desktop is open
-- Ensure `discordEnabled: true`
-- Ensure `discordClientId` is set and valid
-- Check `electron-log` output
-
-### Presence connected but image assets do not show
-
-- Verify asset keys exist in your Discord application
-- Confirm the app is using the expected Discord application/client ID
-- Fully quit Discord from tray and reopen
-
-### Mini player shows no updates
-
-Ensure preload exposes:
-
-- `miniAPI.getNowPlaying()`
-- `miniAPI.onNowPlaying(...)`
-- `miniAPI.toggle()`
-
-### App launches but no controls visible
-
-Use the global hotkey:
-
-- `Ctrl/Cmd + Shift + M`
-
----
-
-## Local API (Express)
-
-Default: `http://localhost:3977`
-
-### `GET /status`
-
-Returns now-playing and app status.
-
-### `GET /settings`
-
-Returns current settings.
-
-### `POST /settings`
-
-Updates settings.
-
-Example:
-
-```bash
-curl -X POST http://localhost:3977/settings \
-  -H "Content-Type: application/json" \
-  -d "{\"discordClientId\":\"123456789012345678\",\"discordEnabled\":true,\"rpcDisplayPreset\":\"clean\"}"
-```
-
----
-
-## Settings
-
-Fruitsic stores settings in Electron `userData`:
-
-- **Windows:** `%APPDATA%/Fruitsic/settings.json`
-- **macOS:** `~/Library/Application Support/Fruitsic/settings.json`
-- **Linux:** `~/.config/Fruitsic/settings.json`
-
-Example:
-
-```json
-{
-  "discordEnabled": true,
-  "pollMs": 5000,
-  "discordClientId": "DISCORD_APP_CLIENT_ID",
-  "rpcDisplayPreset": "clean"
-}
-```
-
----
-
-## Stack
-
-- [Electron](https://www.electronjs.org/)
-- [@xhayper/discord-rpc](https://www.npmjs.com/package/@xhayper/discord-rpc)
-- [Express](https://expressjs.com/)
-- [electron-log](https://www.npmjs.com/package/electron-log)
+- Real-time now-playing detection from YouTube Music
+- Smart presence update throttling (track changes, seek, pause/play, heartbeat)
+- Rich Presence display presets (clean is best / default):
+  - `clean`
+  - `time-first`
+  - `album-first`
+- Frameless mini player you can drag anywhere
+- Optional local HTTP endpoints for status/settings
+- Packaged builds via `electron-builder` (Windows/macOS/Linux)
 
 ---
 
@@ -264,6 +146,93 @@ Build output goes to `dist/`.
 
 ---
 
+## Troubleshooting
+
+### Presence not connecting
+
+- Ensure Discord desktop is open
+- Ensure `discordEnabled: true`
+- Ensure `discordClientId` is set and valid
+- Check `electron-log` output
+
+### Presence connected but image assets do not show
+
+- Verify asset keys exist in your Discord application
+- Confirm the app is using the expected Discord application/client ID
+- Fully quit Discord from tray and reopen
+
+### Mini player shows no updates
+
+Ensure preload exposes:
+
+- `miniAPI.getNowPlaying()`
+- `miniAPI.onNowPlaying(...)`
+- `miniAPI.toggle()`
+
+### App launches but no controls visible
+
+Use the global hotkey:
+
+- `Ctrl/Cmd + Shift + M`
+
+---
+
+## Local API (Express)
+
+Default: `http://localhost:3977`
+
+### `GET /status`
+
+Returns now-playing and app status.
+
+### `GET /settings`
+
+Returns current settings.
+
+### `POST /settings`
+
+Updates settings.
+
+Example:
+
+```bash
+curl -X POST http://localhost:3977/settings \
+  -H "Content-Type: application/json" \
+  -d "{\"discordClientId\":\"123456789012345678\",\"discordEnabled\":true,\"rpcDisplayPreset\":\"clean\"}"
+```
+
+---
+
+## Settings
+
+Fruitsic stores settings in Electron `userData`:
+
+- **Windows:** `%APPDATA%/Fruitsic/settings.json`
+- **macOS:** `~/Library/Application Support/Fruitsic/settings.json`
+- **Linux:** `~/.config/Fruitsic/settings.json`
+
+Example:
+
+```json
+{
+  "discordEnabled": true,
+  "pollMs": 5000,
+  "discordClientId": "DISCORD_APP_CLIENT_ID",
+  "rpcDisplayPreset": "clean"
+}
+```
+
+---
+
+## Stack
+
+- [Electron](https://www.electronjs.org/)
+- [@xhayper/discord-rpc](https://www.npmjs.com/package/@xhayper/discord-rpc)
+- [Express](https://expressjs.com/)
+- [electron-log](https://www.npmjs.com/package/electron-log)
+
+---
+
 ## License
 
 MIT — do whatever, just keep attribution.
@@ -272,6 +241,7 @@ MIT — do whatever, just keep attribution.
 
 ## Credits
 
-Built with Electron + Discord RPC + caffeine.
+Built with Electron + Discord RPC + caffeine.  
+
 YouTube Music Icon:
 [Audio icons created by Enamo Studios - Flaticon](https://www.flaticon.com/free-icons/audio)

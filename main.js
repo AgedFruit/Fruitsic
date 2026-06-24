@@ -77,7 +77,6 @@ async function rebuildRpcFromSettings(oldSettings, newSettings) {
 
   rpc = new DiscordPresence(newId);
 
-  // apply preset immediately on rebuilt client
   if (rpc && typeof rpc.setDisplayPreset === 'function') {
     rpc.setDisplayPreset(newSettings?.rpcDisplayPreset || 'clean');
   }
@@ -118,7 +117,6 @@ async function applySettingsPartial(partial) {
   writeSettings(settings);
   await rebuildRpcFromSettings(previous, settings);
 
-  // live-apply preset even if RPC client did not rebuild
   if (rpc && typeof rpc.setDisplayPreset === 'function') {
     rpc.setDisplayPreset(settings.rpcDisplayPreset);
   }
@@ -131,7 +129,6 @@ async function applySettingsPartial(partial) {
     }
   }
 
-  // force immediate refresh so preset change is visible now
   if (rpc && settings.discordEnabled && nowPlaying?.title) {
     try {
       await rpc.setNowPlaying(
@@ -266,6 +263,52 @@ async function setupRealtimeTrackBridge() {
         return '';
       }
 
+      function getCurrentTrackUrl(media) {
+        const normalize = (raw) => {
+          if (!raw) return '';
+          try {
+            const u = new URL(raw, location.origin);
+
+            let v = u.searchParams.get('v');
+            if (!v) {
+              const m = u.pathname.match(/\\/watch\\/([a-zA-Z0-9_-]{6,})/);
+              if (m) v = m[1];
+            }
+            if (!v) {
+              const m2 = String(raw).match(/[?&]v=([a-zA-Z0-9_-]{6,})/);
+              if (m2) v = m2[1];
+            }
+
+            if (v) return \`https://music.youtube.com/watch?v=\${encodeURIComponent(v)}\`;
+            return '';
+          } catch (_) {
+            return '';
+          }
+        };
+
+        const fromMedia = normalize(media && (media.currentSrc || media.src));
+        if (fromMedia) return fromMedia;
+
+        const ms = (typeof navigator !== 'undefined' && navigator.mediaSession) ? navigator.mediaSession : null;
+        const meta = ms && ms.metadata ? ms.metadata : null;
+        const fromMeta = normalize(meta && meta.url);
+        if (fromMeta) return fromMeta;
+
+        const selectors = [
+          'ytmusic-player-bar .title a[href]',
+          '.middle-controls .title a[href]',
+          'a[href*="watch?v="]'
+        ];
+
+        for (const sel of selectors) {
+          const a = document.querySelector(sel);
+          const fromA = normalize(a && a.getAttribute('href'));
+          if (fromA) return fromA;
+        }
+
+        return 'https://music.youtube.com';
+      }
+
       function readTrack() {
         const media = pickMedia();
 
@@ -303,7 +346,7 @@ async function setupRealtimeTrackBridge() {
           }
         } catch (_) {}
 
-        return { title, artist, album, currentTimeSec, durationSec, paused, albumArt, trackUrl: location.href };
+        return { title, artist, album, currentTimeSec, durationSec, paused, albumArt, trackUrl: getCurrentTrackUrl(media) };
       }
 
       function emit() {
@@ -416,6 +459,52 @@ async function readTrackForPresence() {
           return '';
         }
 
+        function getCurrentTrackUrl(media) {
+          const normalize = (raw) => {
+            if (!raw) return '';
+            try {
+              const u = new URL(raw, location.origin);
+
+              let v = u.searchParams.get('v');
+              if (!v) {
+                const m = u.pathname.match(/\\/watch\\/([a-zA-Z0-9_-]{6,})/);
+                if (m) v = m[1];
+              }
+              if (!v) {
+                const m2 = String(raw).match(/[?&]v=([a-zA-Z0-9_-]{6,})/);
+                if (m2) v = m2[1];
+              }
+
+              if (v) return \`https://music.youtube.com/watch?v=\${encodeURIComponent(v)}\`;
+              return '';
+            } catch (_) {
+              return '';
+            }
+          };
+
+          const fromMedia = normalize(media && (media.currentSrc || media.src));
+          if (fromMedia) return fromMedia;
+
+          const ms = (typeof navigator !== 'undefined' && navigator.mediaSession) ? navigator.mediaSession : null;
+          const meta = ms && ms.metadata ? ms.metadata : null;
+          const fromMeta = normalize(meta && meta.url);
+          if (fromMeta) return fromMeta;
+
+          const selectors = [
+            'ytmusic-player-bar .title a[href]',
+            '.middle-controls .title a[href]',
+            'a[href*="watch?v="]'
+          ];
+
+          for (const sel of selectors) {
+            const a = document.querySelector(sel);
+            const fromA = normalize(a && a.getAttribute('href'));
+            if (fromA) return fromA;
+          }
+
+          return 'https://music.youtube.com';
+        }
+
         const media = pickMedia();
         const ms = (typeof navigator !== 'undefined' && navigator.mediaSession) ? navigator.mediaSession : null;
         const meta = ms && ms.metadata ? ms.metadata : null;
@@ -428,7 +517,7 @@ async function readTrackForPresence() {
         const durationSec = media && Number.isFinite(media.duration) ? Math.floor(media.duration) : 0;
         const paused = media ? !!media.paused : true;
 
-        return { title, artist, album, currentTimeSec, durationSec, paused, trackUrl: location.href };
+        return { title, artist, album, currentTimeSec, durationSec, paused, trackUrl: getCurrentTrackUrl(media) };
       })();
       `,
       true
@@ -491,7 +580,8 @@ function startPresencePolling() {
         currentTimeSec: p.currentTimeSec,
         durationSec: p.durationSec,
         phase: currentPhase10s(),
-        preset: settings?.rpcDisplayPreset || 'clean'
+        preset: settings?.rpcDisplayPreset || 'clean',
+        trackUrl: p.trackUrl
       });
 
       await rpc.setNowPlaying(
@@ -546,7 +636,7 @@ function createMiniWindow() {
 
   miniWin = new BrowserWindow({
     width: 360,
-    height: 120,
+    height: 150,
     resizable: false,
     maximizable: false,
     minimizable: true,
@@ -595,6 +685,88 @@ function setupIPC() {
   }));
 
   ipcMain.handle('nowPlaying:get', async () => nowPlaying);
+
+  ipcMain.handle('media:command', async (_evt, command) => {
+    if (!win || win.isDestroyed()) return false;
+    const cmd = String(command || '').trim();
+
+    return win.webContents.executeJavaScript(`
+      (() => {
+        const command = ${JSON.stringify(cmd)};
+
+        const fireClick = (el) => {
+          if (!el) return false;
+          try { el.click(); return true; } catch (_) {}
+          try {
+            el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+            el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+            el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+            el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+            return true;
+          } catch (_) {}
+          return false;
+        };
+
+        const clickAny = (selectors) => {
+          for (const s of selectors) {
+            const el = document.querySelector(s);
+            if (!el) continue;
+
+            // click element itself
+            if (fireClick(el)) return true;
+
+            // click nearest button host if this is inner icon/path
+            const hostBtn = el.closest('tp-yt-paper-icon-button, button');
+            if (hostBtn && fireClick(hostBtn)) return true;
+          }
+          return false;
+        };
+
+        if (command === 'playPause') {
+          if (clickAny([
+            'ytmusic-player-bar tp-yt-paper-icon-button#play-pause-button',
+            'ytmusic-player-bar #play-pause-button',
+            'ytmusic-player-bar button[aria-label*="Pause"]',
+            'ytmusic-player-bar button[aria-label*="Play"]'
+          ])) return true;
+
+          const m = document.querySelector('audio,video');
+          if (m) { m.paused ? m.play().catch(() => {}) : m.pause(); return true; }
+          return false;
+        }
+
+        if (command === 'next') {
+          if (clickAny([
+            // host button
+            'ytmusic-player-bar tp-yt-paper-icon-button#next-button',
+            'ytmusic-player-bar #next-button',
+            // inner icon targets (very common)
+            'ytmusic-player-bar #next-button tp-yt-iron-icon',
+            'ytmusic-player-bar #next-button yt-icon',
+            'ytmusic-player-bar tp-yt-paper-icon-button[title*="Next"]',
+            'ytmusic-player-bar button[aria-label*="Next"]'
+          ])) return true;
+          return false;
+        }
+
+        if (command === 'previous') {
+          if (clickAny([
+            // host button
+            'ytmusic-player-bar tp-yt-paper-icon-button#previous-button',
+            'ytmusic-player-bar #previous-button',
+            // inner icon targets
+            'ytmusic-player-bar #previous-button tp-yt-iron-icon',
+            'ytmusic-player-bar #previous-button yt-icon',
+            'ytmusic-player-bar tp-yt-paper-icon-button[title*="Previous"]',
+            'ytmusic-player-bar button[aria-label*="Previous"]'
+          ])) return true;
+          return false;
+        }
+
+        return false;
+      })();
+    `, true);
+  });
 }
 
 function setupExpress() {
@@ -617,7 +789,6 @@ function setupExpress() {
 app.whenReady().then(async () => {
   settings = readSettings();
 
-  // defaults
   if (!settings.rpcDisplayPreset) {
     settings.rpcDisplayPreset = 'clean';
   }
@@ -636,7 +807,6 @@ app.whenReady().then(async () => {
 
   rpc = new DiscordPresence(effectiveClientId);
 
-  // apply preset on startup
   if (rpc && typeof rpc.setDisplayPreset === 'function') {
     rpc.setDisplayPreset(settings.rpcDisplayPreset || 'clean');
   }
