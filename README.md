@@ -105,6 +105,19 @@ No manual configuration required for normal use.
 - [electron-log](https://www.npmjs.com/package/electron-log)
 
 ---
+# Legal Notice
+
+Fruitsic is an independent, unofficial desktop application.
+
+- Fruitsic is **not affiliated with, endorsed by, or sponsored by** YouTube, Google, or Discord.
+- YouTube, YouTube Music, Discord, and related names/logos are trademarks of their respective owners.
+- Use of third-party services through Fruitsic is subject to those services’ own terms and privacy policies.
+- Fruitsic is provided **“as is”** without warranties of any kind, to the extent permitted by law.
+
+For full details, see:
+- [Terms of Service](./TERMS_OF_SERVICE.md)
+- [Privacy Policy](./PRIVACY_POLICY.md)
+---
 
 ## Getting Started – For Development
 
