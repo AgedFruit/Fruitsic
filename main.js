@@ -38,7 +38,8 @@ let nowPlaying = {
   currentTimeSec: 0,
   durationSec: 0,
   paused: false,
-  albumArt: ''
+  albumArt: '',
+  trackUrl: ''
 };
 
 let presencePollTimer = null;
@@ -76,6 +77,11 @@ async function rebuildRpcFromSettings(oldSettings, newSettings) {
 
   rpc = new DiscordPresence(newId);
 
+  // apply preset immediately on rebuilt client
+  if (rpc && typeof rpc.setDisplayPreset === 'function') {
+    rpc.setDisplayPreset(newSettings?.rpcDisplayPreset || 'clean');
+  }
+
   lastPushedPresence = {
     title: '',
     artist: '',
@@ -103,17 +109,42 @@ async function applySettingsPartial(partial) {
     ...settings,
     ...partial,
     pollMs: Math.max(2000, Number(partial.pollMs ?? settings.pollMs)),
-    discordClientId: String(partial.discordClientId ?? settings.discordClientId ?? '').trim()
+    discordClientId: String(partial.discordClientId ?? settings.discordClientId ?? '').trim(),
+    rpcDisplayPreset: String(partial.rpcDisplayPreset ?? settings.rpcDisplayPreset ?? 'clean')
+      .trim()
+      .toLowerCase()
   };
 
   writeSettings(settings);
   await rebuildRpcFromSettings(previous, settings);
+
+  // live-apply preset even if RPC client did not rebuild
+  if (rpc && typeof rpc.setDisplayPreset === 'function') {
+    rpc.setDisplayPreset(settings.rpcDisplayPreset);
+  }
 
   if (!settings.discordEnabled && rpc) {
     try {
       await rpc.clear();
     } catch (e) {
       log.warn('[RPC] clear failed after disable', e?.message);
+    }
+  }
+
+  // force immediate refresh so preset change is visible now
+  if (rpc && settings.discordEnabled && nowPlaying?.title) {
+    try {
+      await rpc.setNowPlaying(
+        nowPlaying.title,
+        nowPlaying.artist,
+        nowPlaying.currentTimeSec,
+        nowPlaying.durationSec,
+        nowPlaying.paused,
+        nowPlaying.album || '',
+        nowPlaying.trackUrl || 'https://music.youtube.com'
+      );
+    } catch (e) {
+      log.warn('[RPC] immediate refresh after preset change failed', e?.message);
     }
   }
 
@@ -136,7 +167,8 @@ async function setupRealtimeTrackBridge() {
         currentTimeSec: Number(payload.currentTimeSec) || 0,
         durationSec: Number(payload.durationSec) || 0,
         paused: !!payload.paused,
-        albumArt: payload.albumArt || ''
+        albumArt: payload.albumArt || '',
+        trackUrl: payload.trackUrl || ''
       };
 
       try {
@@ -191,7 +223,6 @@ async function setupRealtimeTrackBridge() {
       }
 
       function readAlbumFallback() {
-        // 1) Best signal: album link in player bar byline
         const albumLinkSelectors = [
           'ytmusic-player-bar .byline a[href*="browse/"]',
           '.middle-controls .byline a[href*="browse/"]',
@@ -208,7 +239,6 @@ async function setupRealtimeTrackBridge() {
           }
         }
 
-        // 2) Fallback: parse bullet-separated byline and pick best non-count segment
         const bylineSelectors = [
           '.middle-controls .byline.ytmusic-player-bar',
           'ytmusic-player-bar .byline',
@@ -228,7 +258,6 @@ async function setupRealtimeTrackBridge() {
             const parts = txt.split('•').map(s => s.trim()).filter(Boolean);
             if (!parts.length) continue;
 
-            // usually first is artist; choose first viable non-count after that
             const candidates = parts.slice(1).filter(p => !looksLikeTrackCount(p));
             if (candidates.length) return candidates[0];
           }
@@ -274,7 +303,7 @@ async function setupRealtimeTrackBridge() {
           }
         } catch (_) {}
 
-        return { title, artist, album, currentTimeSec, durationSec, paused, albumArt };
+        return { title, artist, album, currentTimeSec, durationSec, paused, albumArt, trackUrl: location.href };
       }
 
       function emit() {
@@ -399,7 +428,7 @@ async function readTrackForPresence() {
         const durationSec = media && Number.isFinite(media.duration) ? Math.floor(media.duration) : 0;
         const paused = media ? !!media.paused : true;
 
-        return { title, artist, album, currentTimeSec, durationSec, paused };
+        return { title, artist, album, currentTimeSec, durationSec, paused, trackUrl: location.href };
       })();
       `,
       true
@@ -461,7 +490,8 @@ function startPresencePolling() {
         paused: p.paused,
         currentTimeSec: p.currentTimeSec,
         durationSec: p.durationSec,
-        phase: currentPhase10s()
+        phase: currentPhase10s(),
+        preset: settings?.rpcDisplayPreset || 'clean'
       });
 
       await rpc.setNowPlaying(
@@ -470,7 +500,8 @@ function startPresencePolling() {
         p.currentTimeSec,
         p.durationSec,
         p.paused,
-        p.album || ''
+        p.album || '',
+        p.trackUrl || 'https://music.youtube.com'
       );
     } catch (e) {
       log.warn('[Presence poll] push failed', e?.message);
@@ -573,7 +604,8 @@ function setupExpress() {
       nowPlaying,
       discordEnabled: settings.discordEnabled,
       pollMs: settings.pollMs,
-      discordClientId: settings.discordClientId || ''
+      discordClientId: settings.discordClientId || '',
+      rpcDisplayPreset: settings.rpcDisplayPreset || 'clean'
     }),
     getSettings: () => settings,
     updateSettings: async (partial) => {
@@ -585,6 +617,11 @@ function setupExpress() {
 app.whenReady().then(async () => {
   settings = readSettings();
 
+  // defaults
+  if (!settings.rpcDisplayPreset) {
+    settings.rpcDisplayPreset = 'clean';
+  }
+
   const envClientId = (process.env.DISCORD_CLIENT_ID || '').trim();
   const effectiveClientId =
     (settings.discordClientId || '').trim() ||
@@ -593,10 +630,16 @@ app.whenReady().then(async () => {
 
   if (!settings.discordClientId && effectiveClientId) {
     settings.discordClientId = effectiveClientId;
-    writeSettings(settings);
   }
 
+  writeSettings(settings);
+
   rpc = new DiscordPresence(effectiveClientId);
+
+  // apply preset on startup
+  if (rpc && typeof rpc.setDisplayPreset === 'function') {
+    rpc.setDisplayPreset(settings.rpcDisplayPreset || 'clean');
+  }
 
   session.defaultSession.setPermissionRequestHandler((_wc, _permission, cb) => cb(false));
 
