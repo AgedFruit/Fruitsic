@@ -20,7 +20,7 @@ A desktop **YouTube Music** wrapper with:
 
 ---
 
-## 📸 Mini Player
+## Mini Player
 
 - Always on top
 - Drag anywhere by grabbing the window
