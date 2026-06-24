@@ -1,7 +1,7 @@
 const path = require('path');
 const fs = require('fs');
 const dotenv = require('dotenv');
-
+const DEFAULT_DISCORD_CLIENT_ID = '1445465237359693877';
 const envCandidates = [
   path.join(__dirname, '.env'),
   path.join(process.resourcesPath || '', '.env')
@@ -362,13 +362,18 @@ function setupExpress() {
 app.whenReady().then(async () => {
   settings = readSettings();
 
-    const envClientId = (process.env.DISCORD_CLIENT_ID || '').trim();
-    if (!settings.discordClientId && envClientId) {
-        settings.discordClientId = envClientId;
-        writeSettings(settings);
-    }
+const envClientId = (process.env.DISCORD_CLIENT_ID || '').trim();
+const effectiveClientId =
+  (settings.discordClientId || '').trim() ||
+  envClientId ||
+  DEFAULT_DISCORD_CLIENT_ID;
 
-  rpc = new DiscordPresence((settings.discordClientId || '').trim());
+if (!settings.discordClientId && effectiveClientId) {
+  settings.discordClientId = effectiveClientId;
+  writeSettings(settings);
+}
+
+rpc = new DiscordPresence(effectiveClientId);
 
   session.defaultSession.setPermissionRequestHandler((_wc, _permission, cb) => cb(false));
 

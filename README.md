@@ -10,6 +10,69 @@ A desktop **YouTube Music** wrapper with:
 
 ---
 
+## How to Use
+
+1. Install Fruitsic with the installer
+2. Authorise the Discord app
+3. Launch Fruitsic and listen to music
+
+---
+
+## Install Discord App
+
+If Rich Presence doesn’t appear immediately, install/authorise the Fruitsic Discord app once:
+
+**https://discord.com/oauth2/authorize?client_id=1445465237359693877**
+
+Then:
+
+1. Restart Discord
+2. Restart Fruitsic
+3. Play a track in YouTube Music
+
+---
+
+## Zero-Config by Default
+
+Fruitsic ships with a built-in Discord Application Client ID fallback, so most users can:
+
+1. Install
+2. Launch
+3. Play music
+4. See Rich Presence in Discord
+
+No manual configuration required for normal use.
+
+---
+
+## Troubleshooting
+
+### Presence not connecting
+- Ensure Discord desktop is open
+- Verify `discordEnabled: true`
+- Verify `discordClientId` is set and valid
+- Check logs from `electron-log`
+
+### Mini player shows no updates
+- Ensure preload exposes:
+  - `miniAPI.getNowPlaying()`
+  - `miniAPI.onNowPlaying(...)`
+  - `miniAPI.toggle()`
+
+### App launches but no controls visible
+- Use global hotkey: `Ctrl/Cmd + Shift + M`
+
+---
+
+## Controls
+
+![Mini player example](/assets/mini_player_example.png)
+
+- **Toggle mini player:** `Ctrl+Shift+M` (Windows/Linux) / `Cmd+Shift+M` (macOS)
+- Mini player window is draggable (frameless mode)
+
+---
+
 ## Features
 
 - Real-time now-playing detection from YouTube Music
@@ -43,9 +106,9 @@ A desktop **YouTube Music** wrapper with:
 
 ---
 
-## Getting Started
+## Getting Started – For Development
 
-### 1) Clone + install
+### 1) Clone and install
 
 ```bash
 git clone https://github.com/<your-username>/fruitsic.git
@@ -61,6 +124,7 @@ You can use either:
 - `.env` fallback in development
 
 #### Option A: settings.json (preferred)
+
 Fruitsic stores settings in Electron `userData`:
 
 - **Windows:** `%APPDATA%/Fruitsic/settings.json`
@@ -73,20 +137,20 @@ Example:
 {
   "discordEnabled": true,
   "pollMs": 5000,
-  "discordClientId": "YOUR_DISCORD_APP_CLIENT_ID"
+  "discordClientId": "DISCORD_APP_CLIENT_ID"
 }
 ```
 
-#### Option B: `.env` (dev fallback)
+#### Option B: `.env` (development fallback)
 
 Create `.env` in project root:
 
 ```env
-DISCORD_CLIENT_ID=YOUR_DISCORD_APP_CLIENT_ID
+DISCORD_CLIENT_ID=DISCORD_APP_CLIENT_ID
 EXPRESS_PORT=3977
 ```
 
-> In dev, if `settings.discordClientId` is empty, Fruitsic can fall back to `.env`.
+> In development, if `settings.discordClientId` is empty, Fruitsic can fall back to `.env`.
 
 ---
 
@@ -102,14 +166,7 @@ or
 npm run dev
 ```
 
-Open Discord desktop + play a song in YouTube Music.
-
----
-
-## Controls
-
-- **Toggle mini player:** `Ctrl+Shift+M` (Windows/Linux) / `Cmd+Shift+M` (macOS)
-- Mini player window is draggable (frameless mode)
+Open Discord desktop and play a song in YouTube Music.
 
 ---
 
@@ -118,7 +175,7 @@ Open Discord desktop + play a song in YouTube Music.
 Default: `http://localhost:3977`
 
 ### `GET /status`
-Returns now-playing + app status.
+Returns now-playing and app status.
 
 ### `GET /settings`
 Returns current settings.
@@ -154,28 +211,9 @@ Build output goes to `dist/`.
 
 ---
 
-## Troubleshooting
+## Licence
 
-### Presence not connecting
-- Ensure Discord desktop is open
-- Verify `discordEnabled: true`
-- Verify `discordClientId` is set and valid
-- Check logs from `electron-log`
-
-### Mini player shows no updates
-- Ensure preload exposes:
-  - `miniAPI.getNowPlaying()`
-  - `miniAPI.onNowPlaying(...)`
-  - `miniAPI.toggle()`
-
-### App launches but no controls visible
-- Use global hotkey: `Ctrl/Cmd + Shift + M`
-
----
-
-## License
-
-MIT — do whatever, just keep attribution.
+MIT – do whatever, just keep attribution.
 
 ---
 
