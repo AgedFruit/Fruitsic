@@ -169,13 +169,6 @@ class DiscordPresence {
 
     try {
       await this.client.user.setActivity(activity);
-      log.info('[RPC payload]', {
-        preset: this.displayPreset,
-        details: activity.details,
-        state: activity.state,
-        large_image: activity.largeImageKey,
-        small_image: activity.smallImageKey,
-      });
     } catch (err) {
       log.error('[RPC] setActivity failed:', err?.message || err);
 

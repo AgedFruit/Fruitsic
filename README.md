@@ -49,6 +49,7 @@ Then:
 - Frameless mini player you can drag anywhere
 - Optional local HTTP endpoints for status/settings
 - Packaged builds via `electron-builder` (Windows/macOS/Linux)
+- Times out after a song has been paused for 60 seconds
 
 ---
 
@@ -243,5 +244,5 @@ MIT — do whatever, just keep attribution.
 
 Built with Electron + Discord RPC + caffeine.  
 
-YouTube Music Icon:
-[Audio icons created by Enamo Studios - Flaticon](https://www.flaticon.com/free-icons/audio)
+[Pineapple Icon by Freepik](https://www.flaticon.com/free-icon/pineapple_8692265?term=pineapple&page=1&position=3&origin=search&related_id=8692265)
+[Youtube Music Icon](https://www.flaticon.com/free-icon/music_15047447?term=youtube+music&page=1&position=3&origin=search&related_id=15047447)

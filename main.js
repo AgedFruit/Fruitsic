@@ -30,6 +30,8 @@ let miniWin = null;
 let expressServer;
 let settings;
 let rpc = null;
+let pausedSinceMs = 0;
+let rpcClearedForLongPause = false;
 
 let nowPlaying = {
   title: '',
@@ -55,6 +57,32 @@ let lastPushedPresence = {
 let lastAutoSkippedTrackKey = '';
 let rickrollSkipCooldownUntil = 0;
 let mediaCommandInFlight = false;
+
+async function handleLongPauseRpc(p) {
+  if (!rpc || !settings?.discordEnabled) return false;
+
+  if (!p?.paused) {
+    pausedSinceMs = 0;
+    rpcClearedForLongPause = false;
+    return false;
+  }
+
+  if (!pausedSinceMs) pausedSinceMs = Date.now();
+  const pausedForMs = Date.now() - pausedSinceMs;
+
+  if (pausedForMs >= 60_000 && !rpcClearedForLongPause) {
+    try {
+      await rpc.clear();
+      rpcClearedForLongPause = true;
+      log.info('[RPC] Cleared after long pause', { pausedForMs });
+      return true;
+    } catch (e) {
+      log.warn('[RPC] clear failed after long pause', e?.message);
+    }
+  }
+
+  return rpcClearedForLongPause;
+}
 
 function currentPhase10s() {
   return Math.floor(Date.now() / 10000) % 2;
@@ -428,8 +456,7 @@ async function setupRealtimeTrackBridge() {
         const hit = isRickrollByTitleArtist(nowPlaying.title, nowPlaying.artist);
         if (hit && Date.now() > rickrollSkipCooldownUntil) {
           rickrollSkipCooldownUntil = Date.now() + 5000;
-
-          const skipped = await triggerMediaCommand('next');
+          await triggerMediaCommand('next');
           await sendMainToast('🥸 Nice try. Rickroll auto-skipped.');
           await triggerMediaCommand('playPause');
         }
@@ -463,22 +490,23 @@ async function setupRealtimeTrackBridge() {
       }
 
       function pickMedia() {
+        const inBar = document.querySelector('ytmusic-player-bar audio, ytmusic-player-bar video');
+        if (inBar) return inBar;
+
         const nodes = Array.from(document.querySelectorAll('audio,video'));
         if (!nodes.length) return null;
 
         let m = nodes.find(el =>
           !el.paused &&
           Number.isFinite(el.currentTime) &&
-          (Number.isFinite(el.duration) ? el.duration > 0 : true) &&
-          !el.muted &&
-          el.volume > 0
+          Number.isFinite(el.duration) &&
+          el.duration > 0
         );
         if (m) return m;
 
-        m = nodes.find(el => !el.paused);
+        m = nodes.find(el => Number.isFinite(el.duration) && el.duration > 0);
         if (m) return m;
 
-        nodes.sort((a, b) => (b.duration || 0) - (a.duration || 0));
         return nodes[0] || null;
       }
 
@@ -585,9 +613,13 @@ async function setupRealtimeTrackBridge() {
 
         const timeInfo = document.querySelector('.time-info')?.textContent || '';
         const m = timeInfo.replace(/\\s+/g, ' ').match(/(\\d{1,2}:\\d{2}(?::\\d{2})?)\\s*\\/\\s*(\\d{1,2}:\\d{2}(?::\\d{2})?)/);
-        if ((!currentTimeSec || !durationSec) && m) {
+        if (m) {
           currentTimeSec = parseClock(m[1]);
           durationSec = parseClock(m[2]);
+        }
+
+        if (durationSec > 0 && currentTimeSec > durationSec) {
+          currentTimeSec = durationSec;
         }
 
         const ms = (typeof navigator !== 'undefined' && navigator.mediaSession) ? navigator.mediaSession : null;
@@ -658,23 +690,33 @@ async function readTrackForPresence() {
     return await win.webContents.executeJavaScript(
       `
       (() => {
+        function parseClock(text) {
+          if (!text) return 0;
+          const p = text.trim().split(':').map(n => parseInt(n, 10));
+          if (p.some(Number.isNaN)) return 0;
+          if (p.length === 2) return p[0] * 60 + p[1];
+          if (p.length === 3) return p[0] * 3600 + p[1] * 60 + p[2];
+          return 0;
+        }
+
         function pickMedia() {
+          const inBar = document.querySelector('ytmusic-player-bar audio, ytmusic-player-bar video');
+          if (inBar) return inBar;
+
           const nodes = Array.from(document.querySelectorAll('audio,video'));
           if (!nodes.length) return null;
 
           let m = nodes.find(el =>
             !el.paused &&
             Number.isFinite(el.currentTime) &&
-            (Number.isFinite(el.duration) ? el.duration > 0 : true) &&
-            !el.muted &&
-            el.volume > 0
+            Number.isFinite(el.duration) &&
+            el.duration > 0
           );
           if (m) return m;
 
-          m = nodes.find(el => !el.paused);
+          m = nodes.find(el => Number.isFinite(el.duration) && el.duration > 0);
           if (m) return m;
 
-          nodes.sort((a, b) => (b.duration || 0) - (a.duration || 0));
           return nodes[0] || null;
         }
 
@@ -780,9 +822,20 @@ async function readTrackForPresence() {
         const artist = (meta && meta.artist ? meta.artist : '').trim();
         const album = ((meta && meta.album ? meta.album : '') || readAlbumFallback()).trim();
 
-        const currentTimeSec = media && Number.isFinite(media.currentTime) ? Math.floor(media.currentTime) : 0;
-        const durationSec = media && Number.isFinite(media.duration) ? Math.floor(media.duration) : 0;
+        let currentTimeSec = media && Number.isFinite(media.currentTime) ? Math.floor(media.currentTime) : 0;
+        let durationSec = media && Number.isFinite(media.duration) ? Math.floor(media.duration) : 0;
         const paused = media ? !!media.paused : true;
+
+        const timeInfo = document.querySelector('.time-info')?.textContent || '';
+        const m = timeInfo.replace(/\\s+/g, ' ').match(/(\\d{1,2}:\\d{2}(?::\\d{2})?)\\s*\\/\\s*(\\d{1,2}:\\d{2}(?::\\d{2})?)/);
+        if (m) {
+          currentTimeSec = parseClock(m[1]);
+          durationSec = parseClock(m[2]);
+        }
+
+        if (durationSec > 0 && currentTimeSec > durationSec) {
+          currentTimeSec = durationSec;
+        }
 
         return { title, artist, album, currentTimeSec, durationSec, paused, trackUrl: getCurrentTrackUrl(media) };
       })();
@@ -837,6 +890,9 @@ function startPresencePolling() {
 
       const p = await readTrackForPresence();
       if (!p || !p.title) return;
+
+      const suppressed = await handleLongPauseRpc(p);
+      if (suppressed) return;
 
       if (settings?.rickrollJokeMode) {
         const pageDetect = await isRickrollNowFromPage();
@@ -911,6 +967,9 @@ function createMiniWindow() {
   if (miniWin && !miniWin.isDestroyed()) {
     miniWin.show();
     miniWin.focus();
+    // Re-assert topmost when reusing existing window
+    miniWin.setAlwaysOnTop(true, 'screen-saver');
+    miniWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
     return;
   }
 
@@ -920,11 +979,14 @@ function createMiniWindow() {
     resizable: false,
     maximizable: false,
     minimizable: true,
+    fullscreenable: false,
     alwaysOnTop: true,
     autoHideMenuBar: true,
     frame: false,
     titleBarStyle: 'hidden',
     transparent: false,
+    focusable: true,
+    skipTaskbar: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -935,7 +997,32 @@ function createMiniWindow() {
 
   miniWin.loadFile(path.join(__dirname, 'mini.html'));
 
+  const pinMiniTop = () => {
+    if (!miniWin || miniWin.isDestroyed()) return;
+    miniWin.setAlwaysOnTop(true, 'screen-saver'); // strongest practical level
+    miniWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  };
+
+  miniWin.once('ready-to-show', () => {
+    pinMiniTop();
+    miniWin.show();
+  });
+
+  miniWin.on('show', pinMiniTop);
+  miniWin.on('focus', pinMiniTop);
+  miniWin.on('blur', pinMiniTop);
+
+  // Keep it pinned when display metrics change (alt-tab, game mode switches, etc.)
+  const handleDisplayChange = () => pinMiniTop();
+  const { screen } = require('electron');
+  screen.on('display-metrics-changed', handleDisplayChange);
+  screen.on('display-added', handleDisplayChange);
+  screen.on('display-removed', handleDisplayChange);
+
   miniWin.on('closed', () => {
+    screen.removeListener('display-metrics-changed', handleDisplayChange);
+    screen.removeListener('display-added', handleDisplayChange);
+    screen.removeListener('display-removed', handleDisplayChange);
     miniWin = null;
   });
 }
