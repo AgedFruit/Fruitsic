@@ -961,6 +961,16 @@ function createWindow() {
   win.webContents.on('did-finish-load', async () => {
     await setupRealtimeTrackBridge();
   });
+
+  win.on('minimize', () => {
+    createMiniWindow();
+  });
+
+  win.on('restore', () => {
+    if (miniWin && !miniWin.isDestroyed()) {
+      miniWin.close();
+    }
+  });
 }
 
 function createMiniWindow() {
@@ -974,9 +984,9 @@ function createMiniWindow() {
   }
 
   miniWin = new BrowserWindow({
-    width: 360,
-    height: 150,
-    resizable: false,
+    width: 370,
+    height: 160,
+    resizable: true,
     maximizable: false,
     minimizable: true,
     fullscreenable: false,
@@ -1075,6 +1085,54 @@ function setupExpress() {
     }
   });
 }
+
+ipcMain.handle('mini:resizeBy', (_e, dx, dy) => {
+  if (!miniWin || miniWin.isDestroyed()) return false;
+  const [w, h] = miniWin.getSize();
+  miniWin.setSize(
+    Math.max(280, w + Math.trunc(dx)),
+    Math.max(110, h + Math.trunc(dy))
+  );
+  return true;
+});
+
+ipcMain.handle('media:getVolume', async () => {
+  if (!win || win.isDestroyed()) return 100;
+  try {
+    const v = await win.webContents.executeJavaScript(`
+      (() => {
+        const m = document.querySelector('ytmusic-player-bar audio, ytmusic-player-bar video, audio, video');
+        if (!m) return 1;
+        return Number.isFinite(m.volume) ? m.volume : 1;
+      })();
+    `, true);
+    return Math.round((Number(v) || 1) * 100);
+  } catch {
+    return 100;
+  }
+});
+
+ipcMain.handle('media:setVolume', async (_e, value) => {
+  if (!win || win.isDestroyed()) return false;
+  const pct = Math.max(0, Math.min(100, Number(value) || 0));
+  const vol = pct / 100;
+
+  try {
+    return await win.webContents.executeJavaScript(`
+      (() => {
+        const vol = ${vol};
+        const nodes = Array.from(document.querySelectorAll('ytmusic-player-bar audio, ytmusic-player-bar video, audio, video'));
+        if (!nodes.length) return false;
+        nodes.forEach(m => {
+          try { m.volume = vol; if (vol > 0) m.muted = false; } catch (_) {}
+        });
+        return true;
+      })();
+    `, true);
+  } catch {
+    return false;
+  }
+});
 
 app.whenReady().then(async () => {
   settings = readSettings();

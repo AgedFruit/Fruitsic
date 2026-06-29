@@ -2,7 +2,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('ytmApp', {
   getSettings: () => ipcRenderer.invoke('settings:get'),
-  setSettings: (partial) => ipcRenderer.invoke('settings:set', partial)
+  setSettings: (partial) => ipcRenderer.invoke('settings:set', partial),
 });
 
 contextBridge.exposeInMainWorld('miniAPI', {
@@ -19,5 +19,8 @@ contextBridge.exposeInMainWorld('miniAPI', {
   command: (name) => ipcRenderer.invoke('media:command', name),
   playPause: () => ipcRenderer.invoke('media:command', 'playPause'),
   next: () => ipcRenderer.invoke('media:command', 'next'),
-  previous: () => ipcRenderer.invoke('media:command', 'previous')
+  previous: () => ipcRenderer.invoke('media:command', 'previous'),
+  resizeBy: (dx, dy) => window.electronAPI?.resizeMiniBy?.(dx, dy),
+  getVolume: () => ipcRenderer.invoke('media:getVolume'),
+  setVolume: (v) => ipcRenderer.invoke('media:setVolume', v)
 });

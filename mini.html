@@ -2,74 +2,114 @@
 <html>
 <head>
   <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
-    html, body {
-      margin: 0;
-      width: 100%;
-      height: 100%;
-      background: #111;
-      color: #fff;
-      font-family: system-ui, sans-serif;
+    :root {
+      --bg: #111;
+      --panel: #111;
+      --text: #fff;
+      --muted: rgba(255,255,255,.78);
+      --btn: rgba(255,255,255,.14);
+      --btn-hover: rgba(255,255,255,.24);
+      --radius: 12px;
+      --gap: clamp(8px, 1.4vw, 14px);
+      --pad: clamp(8px, 1.6vw, 14px);
+      --title-size: clamp(12px, 1.35vw, 18px);
+      --meta-size: clamp(11px, 1.1vw, 14px);
+      --time-size: clamp(11px, 1.05vw, 13px);
+      --ctrl-size: clamp(28px, 3.1vw, 40px);
+      --cover-size: clamp(56px, 24vw, 180px);
     }
 
+    * { box-sizing: border-box; }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      overflow: hidden;
+    }
+
+    /* drag regions */
+    html, body, .app, .wrap { -webkit-app-region: drag; }
+    button, input, a, .no-drag, .resize-handle { -webkit-app-region: no-drag; }
+
     body {
-      display: flex;
-      align-items: center;
-      justify-content: center;
+      display: grid;
+      place-items: center;
+      padding: clamp(4px, 1vw, 10px);
+    }
+
+    .app {
+      width: 100%;
+      height: 100%;
+      display: grid;
+      place-items: center;
     }
 
     .wrap {
       position: relative;
-      width: calc(100% - 16px);
-      max-width: 460px;
-
-      display: flex;
-      gap: 10px;
-      padding: 10px 36px 10px 10px;
-      box-sizing: border-box;
+      width: min(100%, 980px);
+      height: min(100%, 420px);
+      margin: 0 auto;
+      background: var(--bg);
+      /* border: 1px solid rgba(255,255,255,.08); */
+      border-radius: var(--radius);
+      padding: var(--pad) calc(var(--pad) + 22px) var(--pad) var(--pad);
+      display: grid;
+      grid-template-columns: minmax(48px, var(--cover-size)) minmax(0, 1fr);
+      gap: var(--gap);
       align-items: center;
-      justify-content: center;
-
-      -webkit-app-region: drag;
+      justify-items: stretch;
       user-select: none;
       cursor: move;
     }
 
     .close-btn {
       position: absolute;
-      top: 6px;
-      right: 6px;
-      width: 22px;
-      height: 22px;
+      top: clamp(6px, 1vw, 10px);
+      right: clamp(6px, 1vw, 10px);
+      width: clamp(20px, 2vw, 26px);
+      height: clamp(20px, 2vw, 26px);
       border: 0;
-      border-radius: 6px;
-      background: rgba(255,255,255,0.12);
+      border-radius: 8px;
+      background: var(--bg);
       color: #fff;
-      font-size: 14px;
-      line-height: 22px;
-      text-align: center;
+      font-size: clamp(12px, 1.1vw, 16px);
+      line-height: 1;
+      display: grid;
+      place-items: center;
       cursor: pointer;
-      -webkit-app-region: no-drag;
     }
     .close-btn:hover { background: rgba(255,255,255,0.22); }
 
+    .cover-wrap {
+      width: 100%;
+      aspect-ratio: 1 / 1;
+      border-radius: 10px;
+      overflow: hidden;
+      background: var(--bg);
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,.06);
+    }
+
     .cover {
-      width: 96px;
-      height: 96px;
-      border-radius: 8px;
+      width: 100%;
+      height: 100%;
+      display: block;
       object-fit: cover;
-      background: #222;
-      flex: 0 0 96px;
-      -webkit-app-region: no-drag;
+      background: var(--bg);
     }
 
     .meta {
       min-width: 0;
-      flex: 1;
+      display: grid;
+      gap: clamp(4px, .8vw, 8px);
+      align-content: center;
+      justify-items: center;
       text-align: center;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
     }
 
     .title, .artist, .time {
@@ -79,48 +119,167 @@
       text-overflow: ellipsis;
     }
 
-    .title { font-weight: 700; }
-    .artist { opacity: .85; margin-top: 2px; }
-    .time { opacity: .9; margin-top: 6px; font-family: ui-monospace, monospace; }
+    .title {
+      font-weight: 700;
+      font-size: var(--title-size);
+      line-height: 1.2;
+    }
+
+    .artist {
+      opacity: .9;
+      color: var(--muted);
+      font-size: var(--meta-size);
+      line-height: 1.2;
+    }
+
+    .time {
+      opacity: .92;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: var(--time-size);
+      line-height: 1.2;
+    }
 
     .controls {
-      margin-top: 8px;
+      margin-top: clamp(2px, .6vw, 6px);
       display: flex;
-      gap: 8px;
+      gap: clamp(6px, 1vw, 10px);
       justify-content: center;
-      -webkit-app-region: no-drag;
+      flex-wrap: wrap;
     }
 
     .ctrl-btn {
       border: 0;
-      border-radius: 8px;
-      background: rgba(255,255,255,0.14);
+      border-radius: 10px;
+      background: var(--btn);
       color: #fff;
-      width: 30px;
-      height: 30px;
-      font-size: 14px;
+      width: var(--ctrl-size);
+      height: var(--ctrl-size);
+      min-width: 28px;
+      min-height: 28px;
+      font-size: clamp(12px, 1.2vw, 16px);
       cursor: pointer;
-      line-height: 30px;
-      text-align: center;
+      line-height: 1;
+      display: grid;
+      place-items: center;
       padding: 0;
     }
-    .ctrl-btn:hover { background: rgba(255,255,255,0.24); }
+    .ctrl-btn:hover { background: var(--btn-hover); }
+
+    .vol {
+      margin-top: clamp(2px, .8vw, 8px);
+      display: grid;
+      grid-template-columns: minmax(90px, 1fr) auto;
+      align-items: center;
+      justify-content: center;
+      gap: clamp(6px, .9vw, 10px);
+      width: min(100%, 320px);
+      margin-inline: auto;
+    }
+
+    #volSlider {
+      width: 100%;
+      min-width: 80px;
+      accent-color: #fff;
+    }
+
+    #volValue {
+      min-width: 42px;
+      text-align: right;
+      font-size: var(--meta-size);
+      color: var(--muted);
+    }
+
+    .resize-handle {
+      position: fixed;
+      right: 0;
+      bottom: 0;
+      width: 16px;
+      height: 16px;
+      cursor: nwse-resize;
+      opacity: .5;
+      z-index: 10;
+    }
+
+    /* Small/narrow mode */
+    @media (max-width: 360px), (max-height: 150px) {
+      .wrap {
+        grid-template-columns: 1fr;
+        grid-auto-rows: min-content;
+        justify-items: center;
+        align-content: center;
+        text-align: center;
+        padding-right: calc(var(--pad) + 18px);
+        max-height: 148px;
+        overflow: hidden;
+        gap: 6px;
+      }
+
+      .cover-wrap {
+        width: clamp(44px, 24vw, 72px);
+      }
+
+      .title { font-size: 11px; line-height: 1.15; }
+      .artist, .time { font-size: 10px; line-height: 1.1; }
+
+      .controls {
+        margin-top: 2px;
+        gap: 6px;
+      }
+
+      .ctrl-btn {
+        width: 24px;
+        height: 24px;
+        min-width: 24px;
+        min-height: 24px;
+        font-size: 11px;
+      }
+
+      .vol {
+        margin-top: 2px;
+        width: min(100%, 210px);
+        margin-inline: auto;
+        gap: 6px;
+      }
+
+      #volSlider { min-width: 64px; }
+      #volValue { min-width: 34px; font-size: 10px; }
+    }
+
+    /* Very large mini window mode */
+    @media (min-width: 760px) and (min-height: 260px) {
+      :root {
+        --cover-size: clamp(100px, 20vw, 220px);
+        --ctrl-size: clamp(34px, 2.2vw, 44px);
+      }
+    }
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <button id="closeBtn" class="close-btn" title="Close mini player">×</button>
+  <div class="resize-handle" id="resizeHandle"></div>
 
-    <img id="cover" class="cover" />
-    <div class="meta">
-      <div id="title" class="title">Nothing playing</div>
-      <div id="artist" class="artist">-</div>
-      <div id="time" class="time">0:00 / --:--</div>
+  <div class="app">
+    <div class="wrap">
+      <button id="closeBtn" class="close-btn no-drag" title="Close mini player">×</button>
 
-      <div class="controls">
-        <button id="prevBtn" class="ctrl-btn" title="Previous">⏮</button>
-        <button id="playPauseBtn" class="ctrl-btn" title="Play/Pause">⏯</button>
-        <button id="nextBtn" class="ctrl-btn" title="Next">⏭</button>
+      <div class="cover-wrap no-drag">
+        <img id="cover" class="cover" alt="Album cover" />
+      </div>
+
+      <div class="meta">
+        <div id="title" class="title">Nothing playing</div>
+        <div id="artist" class="artist">-</div>
+        <div id="time" class="time">0:00 / --:--</div>
+
+        <div class="controls no-drag">
+          <button id="prevBtn" class="ctrl-btn" title="Previous">⏮</button>
+          <button id="playPauseBtn" class="ctrl-btn" title="Play/Pause">⏯</button>
+          <button id="nextBtn" class="ctrl-btn" title="Next">⏭</button>
+        </div>
+
+        <div class="vol no-drag">
+          <input id="volSlider" type="range" min="0" max="100" step="1" value="100" />
+          <span id="volValue">100%</span>
+        </div>
       </div>
     </div>
   </div>
@@ -138,7 +297,10 @@
 
     const fmt = (sec = 0) => {
       sec = Math.max(0, Math.floor(sec || 0));
-      const m = Math.floor(sec / 60), s = sec % 60;
+      const h = Math.floor(sec / 3600);
+      const m = Math.floor((sec % 3600) / 60);
+      const s = sec % 60;
+      if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
       return `${m}:${String(s).padStart(2, '0')}`;
     };
 
@@ -165,6 +327,57 @@
     $prev.addEventListener('click', async () => { await window.miniAPI.command('previous'); });
     $pp.addEventListener('click', async () => { await window.miniAPI.command('playPause'); });
     $next.addEventListener('click', async () => { await window.miniAPI.command('next'); });
+
+    const h = document.getElementById('resizeHandle');
+    let dragging = false, sx = 0, sy = 0;
+
+    h.addEventListener('pointerdown', (e) => {
+      dragging = true;
+      sx = e.screenX;
+      sy = e.screenY;
+      h.setPointerCapture(e.pointerId);
+    });
+
+    h.addEventListener('pointermove', async (e) => {
+      if (!dragging) return;
+      const dx = e.screenX - sx;
+      const dy = e.screenY - sy;
+      sx = e.screenX;
+      sy = e.screenY;
+      await window.electronAPI.resizeMiniBy(dx, dy);
+    });
+
+    h.addEventListener('pointerup', () => dragging = false);
+    h.addEventListener('pointercancel', () => dragging = false);
+
+    const volSlider = document.getElementById('volSlider');
+    const volValue = document.getElementById('volValue');
+
+    let volDebounce;
+    function setVolLabel(v) { volValue.textContent = `${v}%`; }
+
+    async function initVolume() {
+      try {
+        const v = await window.miniAPI.getVolume();
+        const safe = Number.isFinite(Number(v)) ? Number(v) : 100;
+        volSlider.value = String(safe);
+        setVolLabel(safe);
+      } catch {
+        volSlider.value = '100';
+        setVolLabel(100);
+      }
+    }
+
+    volSlider.addEventListener('input', () => {
+      const v = Number(volSlider.value);
+      setVolLabel(v);
+      clearTimeout(volDebounce);
+      volDebounce = setTimeout(() => {
+        window.miniAPI.setVolume(v);
+      }, 30);
+    });
+
+    initVolume();
 
     window.miniAPI.getNowPlaying().then(render);
     window.miniAPI.onNowPlaying(render);

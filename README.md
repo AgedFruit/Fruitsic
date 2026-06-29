@@ -33,9 +33,10 @@ Then:
 ![Mini player example](/assets/mini_player_example.png)
 
 - **Toggle mini player:** `Ctrl+Shift+M` (Windows/Linux) / `Cmd+Shift+M` (macOS)
-- Mini player window is draggable (frameless mode)
+- Mini player window is draggable and resizeable (using the top right corner)
 - Close mini player with `×`
-- Play / Pause / Next / Previous Track
+- Play / Pause / Next / Previous Track / volume control
+- Mini Player activates when the program is minimised
 
 ---
 ## Features
@@ -244,5 +245,6 @@ MIT — do whatever, just keep attribution.
 
 Built with Electron + Discord RPC + caffeine.  
 
-[Pineapple Icon by Freepik](https://www.flaticon.com/free-icon/pineapple_8692265?term=pineapple&page=1&position=3&origin=search&related_id=8692265)
+[Icon By Hiccup](https://x.com/Never_Hiccups)  
+[Pineapple Icon by Freepik](https://www.flaticon.com/free-icon/pineapple_8692265?term=pineapple&page=1&position=3&origin=search&related_id=8692265)  
 [Youtube Music Icon](https://www.flaticon.com/free-icon/music_15047447?term=youtube+music&page=1&position=3&origin=search&related_id=15047447)
