@@ -30,6 +30,7 @@ let miniWin = null;
 let expressServer;
 let settings;
 let rpc = null;
+let isQuitting = false;
 let pausedSinceMs = 0;
 let rpcClearedForLongPause = false;
 
@@ -971,6 +972,79 @@ function createWindow() {
       miniWin.close();
     }
   });
+
+  win.on('close', (event) => {
+    if (!isQuitting) {
+      event.preventDefault();
+      forceQuitApp();
+    }
+  });
+
+  app.on('window-all-closed', () => {
+  if (!isQuitting) {
+    forceQuitApp();
+    return;
+  }
+  app.exit(0);
+});
+
+app.on('before-quit', async (event) => {
+  if (!isQuitting) {
+    event.preventDefault();
+    await forceQuitApp();
+  }
+});
+}
+
+async function forceStopPlayback() {
+  if (!win || win.isDestroyed()) return;
+  try {
+    await win.webContents.executeJavaScript(
+      `
+      (() => {
+        try {
+          const media = Array.from(document.querySelectorAll('audio,video'));
+          media.forEach(m => {
+            try { m.pause(); } catch (_) {}
+            try { m.srcObject = null; } catch (_) {}
+            try { m.removeAttribute('src'); m.load && m.load(); } catch (_) {}
+          });
+        } catch (_) {}
+        return true;
+      })();
+      `,
+      true
+    );
+  } catch (_) {}
+}
+
+async function forceQuitApp() {
+  if (isQuitting) return;
+  isQuitting = true;
+
+  try { stopPresencePolling(); } catch (_) {}
+  try { if (expressServer) expressServer.close(); } catch (_) {}
+  try { if (rpc) await rpc.destroy(); } catch (_) {}
+  try { await forceStopPlayback(); } catch (_) {}
+
+  try {
+    if (miniWin && !miniWin.isDestroyed()) {
+      miniWin.destroy();
+      miniWin = null;
+    }
+  } catch (_) {}
+
+  try {
+    if (win && !win.isDestroyed()) {
+      win.destroy();
+      win = null;
+    }
+  } catch (_) {}
+
+  // final hard exit fallback
+  setTimeout(() => {
+    try { app.exit(0); } catch (_) {}
+  }, 150);
 }
 
 function createMiniWindow() {
@@ -1193,10 +1267,11 @@ app.whenReady().then(async () => {
 });
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
+  app.quit();
 });
 
 app.on('before-quit', async () => {
+  isQuitting = true;
   stopPresencePolling();
   if (expressServer) expressServer.close();
   if (rpc) await rpc.destroy();
